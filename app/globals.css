@@ -1,0 +1,6 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@import '../node_modules/@kognitos/lattice/dist/theme.css';
+@import '../node_modules/@kognitos/lattice/dist/fonts.css';
+@source '../node_modules/@kognitos/lattice/dist/**/*.{js}';

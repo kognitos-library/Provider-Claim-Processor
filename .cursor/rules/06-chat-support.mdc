@@ -1,0 +1,82 @@
+---
+description: Chat architecture — Claude + Supabase + Kognitos API tools
+globs: app/api/chat/**,lib/chat/**,lib/supabase.ts,app/chat/**
+alwaysApply: false
+---
+
+# Chat Support (Claude + Supabase + Kognitos API Tools)
+
+## Architecture
+
+```
+Sidebar sessions list (client) ↔ useChat hook ↔ ChatProvider context
+  → POST /api/chat → Claude (Anthropic) with API tools → Kognitos REST API
+  → SSE stream back to client
+  → Messages persisted in Supabase
+```
+
+Sessions and messages persist in Supabase. Claude answers questions using **registered API tools only** — it never runs arbitrary code. The chat UI lives at `/chat` with conversation history in the left sidebar.
+
+## Registered Tools
+
+| Tool | API endpoint | Purpose |
+|------|-------------|---------|
+| `list_automations` | GET /automations | List all automations in the workspace |
+| `get_automation` | GET /automations/{id} | Get automation code, connections, inputs |
+| `list_runs` | GET /automations/{id}/runs | List batch history with statuses |
+| `get_run` | GET /automations/{id}/runs/{runId} | Full run details: decoded outputs, errors |
+
+To add a new tool, define an `Anthropic.Tool` in the `TOOLS` array in `app/api/chat/route.ts` and add its handler to the `executeTool` switch. Update the system prompt in `lib/chat/system-prompt.ts` to describe it.
+
+## Required env vars
+
+- `ANTHROPIC_API_KEY` — Claude API key
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase anon key
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (server-side only)
+- `KOGNITOS_TOKEN` — Kognitos API bearer token
+
+## Required npm packages
+
+- `@anthropic-ai/sdk` — Anthropic Claude SDK
+- `@supabase/supabase-js` — Supabase client
+- `react-markdown` — Markdown rendering in chat bubbles
+- `remark-gfm` — GFM support (tables, strikethrough, task lists)
+- `@tailwindcss/typography` — Prose styling for rendered markdown
+
+## Supabase schema
+
+Tables are defined in `supabase/migrations/00000000000001_chat.sql`:
+
+- **chat_sessions** — id, user_id, title, created_at, updated_at
+- **chat_messages** — id, session_id, role (user/assistant/tool), content, tool_call (jsonb), created_at
+
+RLS is enabled with permissive policies. Cascade delete from sessions to messages.
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `lib/supabase.ts` | Supabase client (anon + admin) |
+| `lib/chat/types.ts` | ChatSession, ChatMessage, ToolCallData, ChatStreamEvent |
+| `lib/chat/system-prompt.ts` | Builds Claude system prompt; fetches + caches automation English code |
+| `lib/chat/use-chat.ts` | Client hook: sessions CRUD, SSE streaming, message state |
+| `lib/chat/chat-context.tsx` | React context provider — shares chat state between sidebar and chat page |
+| `app/api/chat/route.ts` | Main endpoint: Claude tool loop + SSE streaming + Supabase persistence |
+| `app/api/chat/sessions/route.ts` | GET (list) + POST (create) sessions |
+| `app/api/chat/sessions/[id]/route.ts` | GET (with messages) + PATCH (title) + DELETE |
+| `app/chat/page.tsx` | Chat page: message bubbles with markdown, empty state, input |
+| `supabase/migrations/00000000000001_chat.sql` | Database schema for chat tables |
+
+## UI integration
+
+Chat sessions are listed in the app sidebar (under the "Chat" nav item) via `ChatProvider` context in `app/layout.tsx`. The sidebar shows sessions only when on `/chat`. Clicking "Chat" when already on the page creates a new conversation.
+
+The chat page uses plain divs (not PageLayout/PageContent) to ensure the input stretches full width. Assistant messages render markdown via `react-markdown` with `remark-gfm`.
+
+## Customizing for a new app
+
+1. Update `lib/chat/system-prompt.ts` — change the domain context, automation description, and rules to match the new automation.
+2. Update tool descriptions in `TOOLS` array — tailor the `description` fields for the new domain.
+3. Update `executeTool` in `app/api/chat/route.ts` if outputs need different decoding (e.g., Arrow IPC tables vs markdown text).
+4. Update suggested questions in `app/chat/page.tsx` — the quick-start buttons should reflect common questions for the new domain.
