@@ -4,16 +4,19 @@ const WORKSPACE_ID = process.env.KOGNITOS_WORKSPACE_ID;
 const BASE_URL = process.env.KOGNITOS_BASE_URL;
 const AUTOMATION_ID = process.env.KOGNITOS_AUTOMATION_ID;
 
-const required = {
+const required: Record<string, string | undefined> = {
   KOGNITOS_TOKEN: TOKEN,
   KOGNITOS_ORG_ID: ORG_ID,
   KOGNITOS_WORKSPACE_ID: WORKSPACE_ID,
   KOGNITOS_BASE_URL: BASE_URL,
-  KOGNITOS_AUTOMATION_ID: AUTOMATION_ID,
-} as const;
+};
 
 for (const [name, value] of Object.entries(required)) {
   if (!value) throw new Error(`Missing required env var: ${name}`);
+}
+
+if (!AUTOMATION_ID) {
+  console.warn("KOGNITOS_AUTOMATION_ID not set — some features will be unavailable");
 }
 
 export { ORG_ID, WORKSPACE_ID, BASE_URL, AUTOMATION_ID };
