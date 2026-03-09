@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin, TABLES } from "@/lib/supabase";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { req, ORG_ID, WORKSPACE_ID, AUTOMATION_ID } from "@/lib/kognitos";
 import { toRunSummary, toRunDetail } from "@/lib/transforms";
-import { decodeArrowTable } from "@/lib/arrow";
 import type { RawRun } from "@/lib/types";
 
-const anthropic = new Anthropic();
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -86,7 +88,7 @@ async function executeTool(
       return JSON.stringify(
         {
           display_name: data.display_name,
-          english_code: data.english_code,
+          english_code: data.english_code?.slice(0, 3000),
           connections: data.connections,
           input_specs: data.input_specs,
         },
@@ -100,167 +102,167 @@ async function executeTool(
   }
 }
 
-export async function POST(request: Request) {
-  const { sessionId, message } = await request.json();
+async function generateTitle(userMessage: string, assistantMessage: string): Promise<string> {
+  const res = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 30,
+    messages: [
+      {
+        role: "user",
+        content: `Summarize this conversation in 4-6 words for a sidebar title. No quotes, no punctuation at the end.\n\nUser: ${userMessage}\nAssistant: ${assistantMessage.slice(0, 300)}`,
+      },
+    ],
+  });
+  const block = res.content[0];
+  return block.type === "text" ? block.text.trim() : "New Conversation";
+}
 
-  if (!sessionId || !message) {
-    return NextResponse.json(
-      { error: "sessionId and message are required" },
-      { status: 400 }
-    );
+export async function POST(request: Request) {
+  const body = await request.json();
+  const { sessionId, message } = body as { sessionId: string; message: string };
+
+  if (!message || !sessionId) {
+    return NextResponse.json({ error: "Missing sessionId or message" }, { status: 400 });
   }
 
-  await supabaseAdmin.from("provider_claims_chat_messages").insert({
-    session_id: sessionId,
-    role: "user",
-    content: message,
-  });
-
-  const { data: history } = await supabaseAdmin
-    .from("provider_claims_chat_messages")
-    .select("role, content, tool_call")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
-
-  const messages: Anthropic.MessageParam[] = (history ?? []).map((m) => ({
-    role: m.role === "assistant" ? "assistant" : "user",
-    content: m.content,
-  }));
+  if (supabaseAdmin) {
+    await supabaseAdmin
+      .from(TABLES.messages)
+      .insert({ session_id: sessionId, role: "user", content: message });
+  }
 
   const systemPrompt = await buildSystemPrompt();
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        let currentMessages = messages;
-        let fullResponse = "";
+  let existingMessages: Anthropic.MessageParam[] = [];
+  if (supabaseAdmin) {
+    const { data: dbMessages } = await supabaseAdmin
+      .from(TABLES.messages)
+      .select("role, content")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+    if (dbMessages) {
+      const filtered = dbMessages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const response = await anthropic.messages.create({
+      const merged: Anthropic.MessageParam[] = [];
+      for (const msg of filtered) {
+        const last = merged[merged.length - 1];
+        if (last && last.role === msg.role) {
+          last.content = last.content + "\n\n" + msg.content;
+        } else {
+          merged.push(msg);
+        }
+      }
+      existingMessages = merged;
+    }
+  } else {
+    existingMessages = [{ role: "user", content: message }];
+  }
+
+  const encoder = new TextEncoder();
+  const responseStream = new ReadableStream({
+    async start(controller) {
+      let streamClosed = false;
+      const send = (data: Record<string, unknown>) => {
+        if (streamClosed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          streamClosed = true;
+        }
+      };
+
+      try {
+        let messages = [...existingMessages];
+        let fullAssistantResponse = "";
+
+        for (let iteration = 0; iteration < 5; iteration++) {
+          if (iteration > 0 && fullAssistantResponse.length > 0) {
+            fullAssistantResponse += "\n\n";
+            send({ type: "text", content: "\n\n" });
+          }
+
+          const stream = anthropic.messages.stream({
             model: "claude-sonnet-4-20250514",
             max_tokens: 4096,
             system: systemPrompt,
             tools: TOOLS,
-            messages: currentMessages,
+            messages,
           });
 
-          let hasToolUse = false;
-          const toolResults: Anthropic.MessageParam[] = [];
+          stream.on("text", (text) => {
+            fullAssistantResponse += text;
+            send({ type: "text", content: text });
+          });
 
-          for (const block of response.content) {
-            if (block.type === "text") {
-              fullResponse += block.text;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "text", content: block.text })}\n\n`
-                )
-              );
-            } else if (block.type === "tool_use") {
-              hasToolUse = true;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "tool_use", name: block.name, input: block.input })}\n\n`
-                )
-              );
+          const finalMessage = await stream.finalMessage();
 
-              const result = await executeTool(
-                block.name,
-                block.input as Record<string, unknown>
-              );
+          const toolBlocks = finalMessage.content.filter(
+            (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+          );
 
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "tool_result", name: block.name, result: result.slice(0, 200) })}\n\n`
-                )
-              );
+          if (toolBlocks.length === 0) break;
 
-              toolResults.push({
-                role: "user",
-                content: [
-                  {
-                    type: "tool_result",
-                    tool_use_id: block.id,
-                    content: result,
-                  },
-                ],
-              });
+          const toolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const block of toolBlocks) {
+            send({ type: "tool_use", tool_name: block.name, tool_input: block.input });
+            let result: string;
+            try {
+              result = await executeTool(block.name, block.input as Record<string, unknown>);
+            } catch (e) {
+              result = `Tool error: ${e instanceof Error ? e.message : "Unknown error"}`;
             }
+            send({ type: "tool_result", tool_name: block.name, content: result.slice(0, 200) + "..." });
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
           }
 
-          if (!hasToolUse) break;
-
-          currentMessages = [
-            ...currentMessages,
-            { role: "assistant", content: response.content },
-            ...toolResults,
+          messages = [
+            ...messages,
+            { role: "assistant", content: finalMessage.content },
+            { role: "user", content: toolResults },
           ];
         }
 
-        await supabaseAdmin.from("provider_claims_chat_messages").insert({
-          session_id: sessionId,
-          role: "assistant",
-          content: fullResponse,
-        });
-
-        const { count } = await supabaseAdmin
-          .from("provider_claims_chat_messages")
-          .select("id", { count: "exact", head: true })
-          .eq("session_id", sessionId);
-
-        const isFirstExchange = count !== null && count <= 2;
-
-        const titlePromise = isFirstExchange
-          ? anthropic.messages
-              .create({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 30,
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate a short title (max 6 words) for a chat that starts with this message. Return ONLY the title, no quotes or punctuation.\n\nUser message: ${message}`,
-                  },
-                ],
-              })
-              .then((r) => {
-                const block = r.content[0];
-                return block.type === "text" ? block.text.trim() : message.slice(0, 60);
-              })
-              .catch(() => message.slice(0, 60))
-          : null;
-
-        const updateFields: Record<string, string> = {
-          updated_at: new Date().toISOString(),
-        };
-
-        if (titlePromise) {
-          updateFields.title = await titlePromise;
+        if (supabaseAdmin) {
+          await supabaseAdmin
+            .from(TABLES.messages)
+            .insert({ session_id: sessionId, role: "assistant", content: fullAssistantResponse || "" });
         }
 
-        await supabaseAdmin
-          .from("provider_claims_chat_sessions")
-          .update(updateFields)
-          .eq("id", sessionId);
+        if (supabaseAdmin) {
+          const { count } = await supabaseAdmin
+            .from(TABLES.messages)
+            .select("*", { count: "exact", head: true })
+            .eq("session_id", sessionId);
 
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-        );
-        controller.close();
-      } catch (error) {
-        const msg =
-          error instanceof Error ? error.message : "Unknown error";
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", message: msg })}\n\n`
-          )
-        );
+          if (count && count <= 3) {
+            try {
+              const title = await generateTitle(message, fullAssistantResponse);
+              await supabaseAdmin
+                .from(TABLES.sessions)
+                .update({ title, updated_at: new Date().toISOString() })
+                .eq("id", sessionId);
+              send({ type: "title", content: title });
+            } catch {
+              /* title generation is best-effort */
+            }
+          }
+        }
+
+        send({ type: "done" });
+      } catch (err) {
+        console.error("[chat] Stream error:", err);
+        try {
+          send({ type: "error", content: err instanceof Error ? err.message : "Unknown error" });
+        } catch { /* controller may be closed */ }
+      } finally {
         controller.close();
       }
     },
   });
 
-  return new Response(stream, {
+  return new Response(responseStream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",

@@ -40,9 +40,7 @@ To add a new tool, define an `Anthropic.Tool` in the `TOOLS` array in `app/api/c
 
 - `@anthropic-ai/sdk` — Anthropic Claude SDK
 - `@supabase/supabase-js` — Supabase client
-- `react-markdown` — Markdown rendering in chat bubbles
-- `remark-gfm` — GFM support (tables, strikethrough, task lists)
-- `@tailwindcss/typography` — Prose styling for rendered markdown
+- Lattice `Markdown` component — renders markdown in chat bubbles (no separate `react-markdown` import needed)
 
 ## Supabase Schema (CRITICAL — project-specific table names)
 
@@ -219,8 +217,7 @@ Use `null` as the sentinel for "not yet fetched" and check `cachedCode !== null`
 | `lib/supabase.ts` | Supabase client (anon + admin) + TABLES constant |
 | `lib/chat/types.ts` | ChatSession, ChatMessage, ToolCallData, ChatStreamEvent |
 | `lib/chat/system-prompt.ts` | Builds Claude system prompt; fetches + caches automation English code |
-| `lib/chat/use-chat.ts` | Client hook: sessions CRUD, SSE streaming, message state |
-| `lib/chat/chat-context.tsx` | React context provider — shares chat state between sidebar and chat page |
+| `lib/chat/chat-context.tsx` | React context provider + hook — sessions CRUD, SSE streaming, message state, shared between sidebar and chat page |
 | `app/api/chat/route.ts` | Main endpoint: Claude tool loop + SSE streaming + Supabase persistence + auto-titling |
 | `app/api/chat/sessions/route.ts` | GET (list) + POST (create) sessions |
 | `app/api/chat/sessions/[id]/route.ts` | GET (with messages) + PATCH (title) + DELETE |

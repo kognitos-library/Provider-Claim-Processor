@@ -3,21 +3,19 @@ import { req, ORG_ID, WORKSPACE_ID, AUTOMATION_ID } from "@/lib/kognitos";
 let cachedCode: string | null = null;
 
 async function getAutomationCode(): Promise<string> {
-  if (cachedCode) return cachedCode;
+  if (cachedCode !== null) return cachedCode;
   try {
     const res = await req(
       `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${AUTOMATION_ID}`
     );
     if (res.ok) {
       const data = await res.json();
-      cachedCode = data.english_code ?? "(no code available)";
-    } else {
-      cachedCode = "(unable to fetch automation code)";
+      cachedCode = data.english_code ?? "";
     }
   } catch {
-    cachedCode = "(unable to fetch automation code)";
+    /* don't cache failures — allow retry on next request */
   }
-  return cachedCode!;
+  return cachedCode ?? "";
 }
 
 export async function buildSystemPrompt(): Promise<string> {

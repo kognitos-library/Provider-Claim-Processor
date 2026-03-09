@@ -15,12 +15,12 @@ import {
   SidebarMenuButton,
   SidebarMenuAction,
   SidebarSeparator,
+  ModeToggle,
   Icon,
   Text,
+  Skeleton,
 } from "@kognitos/lattice";
 import { useChatContext } from "@/lib/chat/chat-context";
-
-const KOGNITOS_URL = process.env.NEXT_PUBLIC_KOGNITOS_URL || "#";
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -29,14 +29,9 @@ export function AppSidebar() {
     sessions,
     activeSessionId,
     setActiveSessionId,
-    loadSession,
+    isLoadingSessions,
     deleteSession,
   } = useChatContext();
-
-  const handleSelectSession = (sessionId: string) => {
-    loadSession(sessionId);
-    if (!pathname.startsWith("/chat")) router.push("/chat");
-  };
 
   const handleChatNav = () => {
     setActiveSessionId(null);
@@ -45,11 +40,13 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
+      <SidebarHeader className="px-4 py-4">
         <Link href="/" className="flex items-center gap-2">
-          <Icon type="FileText" size="md" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+            <Icon type="FileText" size="sm" className="text-primary-foreground" />
+          </div>
           <div>
-            <Text level="base" weight="semibold">
+            <Text level="base" weight="semibold" className="text-sm leading-tight">
               Claims Processor
             </Text>
             <Text level="xSmall" color="muted">
@@ -87,47 +84,65 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {sessions.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {sessions.map((session) => (
+        <SidebarSeparator />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Chat History</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {isLoadingSessions ? (
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <SidebarMenuItem key={i}>
+                      <Skeleton className="h-8 w-full" />
+                    </SidebarMenuItem>
+                  ))}
+                </>
+              ) : sessions.length === 0 ? (
+                <SidebarMenuItem>
+                  <Text level="xSmall" color="muted" className="px-2 py-1">
+                    No conversations yet
+                  </Text>
+                </SidebarMenuItem>
+              ) : (
+                sessions.map((session) => (
                   <SidebarMenuItem key={session.id}>
                     <SidebarMenuButton
+                      asChild
                       isActive={session.id === activeSessionId}
-                      onClick={() => handleSelectSession(session.id)}
-                      className="truncate"
                     >
-                      <Icon type="MessageSquare" size="sm" />
-                      <span className="truncate">{session.title}</span>
+                      <Link
+                        href="/chat"
+                        onClick={() => setActiveSessionId(session.id)}
+                      >
+                        <Icon type="MessageCircle" size="xs" />
+                        <span className="truncate">
+                          {session.title || "New Conversation"}
+                        </span>
+                      </Link>
                     </SidebarMenuButton>
                     <SidebarMenuAction
-                      showOnHover
-                      onClick={() => deleteSession(session.id)}
-                      title="Delete conversation"
-                      className="text-muted-foreground hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSession(session.id);
+                      }}
+                      className="opacity-0 group-hover/menu-item:opacity-100 transition-opacity"
                     >
                       <Icon type="Trash" size="xs" />
                     </SidebarMenuAction>
                   </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+                ))
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
-        <SidebarSeparator />
-        <a
-          href={KOGNITOS_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Icon type="ExternalLink" size="sm" />
-          <span>Open in Kognitos</span>
-        </a>
+      <SidebarFooter className="p-3">
+        <div className="flex items-center justify-between">
+          <Text level="xSmall" color="muted">Powered by Kognitos</Text>
+          <ModeToggle />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );

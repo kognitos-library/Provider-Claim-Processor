@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect, type FormEvent } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useRef, useEffect, useState } from "react";
 import {
   Title,
   Text,
   Button,
   Icon,
   Skeleton,
+  Markdown,
 } from "@kognitos/lattice";
 import { useChatContext } from "@/lib/chat/chat-context";
 
@@ -21,121 +20,163 @@ const SUGGESTIONS = [
 
 export default function ChatPage() {
   const {
-    activeSessionId,
     messages,
-    isStreaming,
+    isLoadingMessages,
+    isSending,
+    streamingContent,
+    error,
     sendMessage,
-    stopStreaming,
+    activeSessionId,
   } = useChatContext();
 
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingContent]);
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || isStreaming) return;
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [activeSessionId]);
+
+  const handleSubmit = async (text?: string) => {
+    const msg = text ?? input.trim();
+    if (!msg || isSending) return;
     setInput("");
-    sendMessage(text);
+    await sendMessage(msg);
   };
 
-  const handleSuggestion = (text: string) => {
-    sendMessage(text);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSubmit();
     }
   };
 
+  const showEmpty = !activeSessionId || (messages.length === 0 && !isLoadingMessages);
+
   return (
-    <div className="flex flex-col h-[calc(100vh-1px)]">
-      {messages.length === 0 && !activeSessionId ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="max-w-lg text-center space-y-6">
-            <div>
-              <Icon type="MessageSquare" size="2xl" className="mx-auto mb-3 text-muted-foreground" />
+    <div className="flex flex-col h-[calc(100vh-1rem)]">
+      <div className="p-4 border-b border-border shrink-0">
+        <Title level="h3">Chat</Title>
+        <Text level="xSmall" color="muted">
+          Ask questions about claim batches, patients, charges, and email delivery
+        </Text>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {isLoadingMessages ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-16 w-3/4" />
+            ))}
+          </div>
+        ) : showEmpty ? (
+          <div className="flex flex-col items-center justify-center h-full gap-6">
+            <div className="text-center">
+              <Icon type="MessageSquare" size="xl" className="text-muted-foreground mb-3 mx-auto" />
               <Title level="h3">Ask about your claims</Title>
-              <Text level="small" color="muted" className="mt-1">
-                I can look up batch details, patient data, charges, and email delivery status.
+              <Text color="muted" className="mt-1">
+                I can help you look up batch details, patient data, charges, and email delivery status.
               </Text>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
-                  onClick={() => handleSuggestion(s)}
-                  className="rounded-lg border bg-card p-3 text-left text-sm hover:bg-accent transition-colors"
+                  onClick={() => handleSubmit(s)}
+                  className="text-left text-sm p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
                 >
                   {s}
                 </button>
               ))}
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
+        ) : (
+          <>
+            {messages.map((msg) => (
               <div
-                className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
-                }`}
+                key={msg.id}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                {msg.role === "user" ? (
-                  <Text level="small">{msg.content}</Text>
-                ) : msg.content ? (
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {msg.content}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-4 w-4 rounded-full" />
-                    <Skeleton className="h-4 w-32" />
-                  </div>
-                )}
+                <div
+                  className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted"
+                  }`}
+                >
+                  {msg.role === "assistant" ? (
+                    <div className="chat-markdown">
+                      <Markdown textProps={{ level: "small" }}>{msg.content}</Markdown>
+                    </div>
+                  ) : (
+                    <Text level="small" className="text-primary-foreground">{msg.content}</Text>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
+            ))}
 
-      <div className="border-t p-4">
-        <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            {isSending && streamingContent && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted">
+                  <div className="chat-markdown">
+                    <Markdown textProps={{ level: "small" }}>{streamingContent}</Markdown>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isSending && !streamingContent && !error && (
+              <div className="flex justify-start">
+                <div className="rounded-lg px-4 py-3 bg-muted">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:300ms]" />
+                    </div>
+                    <Text level="xSmall" color="muted">
+                      Thinking...
+                    </Text>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="flex justify-start">
+                <div className="rounded-lg px-4 py-3 bg-destructive/10 border border-destructive/20">
+                  <Text level="small" className="text-destructive">{error}</Text>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="p-4 border-t border-border shrink-0">
+        <div className="flex gap-2 items-end">
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask about claim batches, patients, charges..."
             rows={1}
-            className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          {isStreaming ? (
-            <Button variant="outline" size="sm" onClick={stopStreaming}>
-              <Icon type="Square" size="sm" />
-              Stop
-            </Button>
-          ) : (
-            <Button type="submit" size="sm" disabled={!input.trim()}>
-              <Icon type="SendHorizontal" size="sm" />
-              Send
-            </Button>
-          )}
-        </form>
+          <Button
+            size="icon"
+            onClick={() => handleSubmit()}
+            disabled={!input.trim() || isSending}
+          >
+            <Icon type="SendHorizontal" size="sm" />
+          </Button>
+        </div>
       </div>
     </div>
   );
