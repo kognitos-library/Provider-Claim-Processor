@@ -21,11 +21,11 @@
     "react-hook-form": "^7.56.0",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "@tailwindcss/typography": "^0.5.16"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
-    "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
