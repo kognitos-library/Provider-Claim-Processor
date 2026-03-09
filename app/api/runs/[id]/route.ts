@@ -3,6 +3,8 @@ import { req, ORG_ID, WORKSPACE_ID, AUTOMATION_ID } from "@/lib/kognitos";
 import { toRunDetail } from "@/lib/transforms";
 import type { RawRun } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
