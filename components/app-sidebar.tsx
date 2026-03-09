@@ -9,7 +9,6 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarGroupContent,
-  SidebarGroupAction,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
@@ -29,8 +28,8 @@ export function AppSidebar() {
   const {
     sessions,
     activeSessionId,
+    setActiveSessionId,
     loadSession,
-    createSession,
     deleteSession,
   } = useChatContext();
 
@@ -39,9 +38,9 @@ export function AppSidebar() {
     if (!pathname.startsWith("/chat")) router.push("/chat");
   };
 
-  const handleNewChat = () => {
-    createSession();
-    if (!pathname.startsWith("/chat")) router.push("/chat");
+  const handleChatNav = () => {
+    setActiveSessionId(null);
+    router.push("/chat");
   };
 
   return (
@@ -75,16 +74,21 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={pathname.startsWith("/chat") && !activeSessionId}
+                  onClick={handleChatNav}
+                >
+                  <Icon type="MessageSquare" size="sm" />
+                  <span>Chat</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-            <SidebarGroupLabel>Conversations</SidebarGroupLabel>
-            <SidebarGroupAction onClick={handleNewChat} title="New chat">
-              <Icon type="Plus" size="sm" />
-            </SidebarGroupAction>
+        {sessions.length > 0 && (
+          <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
                 {sessions.map((session) => (
@@ -107,16 +111,10 @@ export function AppSidebar() {
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))}
-                {sessions.length === 0 && (
-                  <li className="px-2 py-3 text-center">
-                    <Text level="xSmall" color="muted">
-                      No conversations yet
-                    </Text>
-                  </li>
-                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="p-4">

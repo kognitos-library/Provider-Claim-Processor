@@ -43,3 +43,6 @@ Follow the six phases below **in strict order**. Do NOT skip ahead. Do NOT start
 - At the start of each phase, announce which phase you're entering and what it involves.
 - If API calls fail, diagnose before moving on: show the error, suggest fixes, retry.
 - Every chart or visualization must answer a specific question from Phase 4.
+- Dev server runs on port 4001 by default (`next dev --port 4001`). The port is set in `package.json` scripts.
+- `KOGNITOS_AUTOMATION_ID` is optional at startup — `lib/kognitos.ts` warns (not throws) if missing. This allows Phase 1 connectivity scripts to run before the user selects an automation.
+- `NEXT_PUBLIC_KOGNITOS_URL` in `.env` gives client-side sidebar links to Kognitos without exposing tokens.

@@ -71,7 +71,7 @@ npm treats `.tgz` like a published package and deduplicates peer deps properly. 
 - **Errors:** `Alert` with `AlertTitle` + `AlertDescription`
 - **Typography:** `Title` (h1-h4), `Text` (xSmall/small/base/large)
 - **Icons:** `Icon` component — look up names in `packages/lattice/src/icons/lucide-icons.ts`
-- **Theme:** `ThemeProvider defaultTheme="light"` in root layout. `ModeToggle` in sidebar footer.
+- **Theme:** `ThemeProvider defaultTheme="light"` in root layout. `ModeToggle` in sidebar footer alongside "Powered by Kognitos" branding.
 
 ## Layout Rules
 
@@ -80,6 +80,50 @@ npm treats `.tgz` like a published package and deduplicates peer deps properly. 
 - As a rule of thumb, delay high column counts (4+) to `xl:` or `2xl:` breakpoints when a sidebar is present.
 - **Root layout structure:** `SidebarInset` wraps a `<div className="flex-1 overflow-auto">` that contains page content. Each page provides its own padding and layout via plain divs — no shared header bar above the content area.
 - **Page title goes inside the page**, not in a shared layout header. Each page renders its own `Title` and subtitle.
+
+## Sidebar Footer
+
+The sidebar footer must always contain:
+1. `ModeToggle` for light/dark theme switching
+2. "Powered by Kognitos" branding text
+
+```tsx
+<SidebarFooter className="p-3">
+  <div className="flex items-center justify-between">
+    <Text level="xSmall" color="muted">Powered by Kognitos</Text>
+    <ModeToggle />
+  </div>
+</SidebarFooter>
+```
+
+## Dark Mode Gotchas
+
+Lattice's `@layer base` applies `text-foreground` to `<body>`, which flips to white in dark mode. This causes two problems:
+
+1. **Primary-colored containers** (e.g. user chat bubbles with `bg-primary`): child `Text` components inherit white text even though `text-primary-foreground` is set on the parent div. Fix: apply `className="text-primary-foreground"` directly on the `Text` component, not just the wrapper.
+
+2. **Any container with a light background in both themes**: explicitly set the text color on the content element, don't rely on inheritance through Lattice components.
+
+## Chat Markdown Sizing
+
+Lattice `Markdown` renders headings via `Title` which uses page-level sizes (`h1`=`text-5xl`, `h2`=`text-3xl`). These are far too large for chat bubbles.
+
+**Required:** Add a `.chat-markdown` class in `globals.css` and wrap chat message `<Markdown>` in it. Also pass `textProps={{ level: "small" }}` for proportional body text.
+
+```css
+.chat-markdown h1 { font-size: 1.125rem; line-height: 1.75rem; font-weight: 600; }
+.chat-markdown h2 { font-size: 1rem; line-height: 1.5rem; font-weight: 600; }
+.chat-markdown h3 { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+.chat-markdown h4 { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; }
+```
+
+```tsx
+<div className="chat-markdown">
+  <Markdown textProps={{ level: "small" }}>{msg.content}</Markdown>
+</div>
+```
+
+Do NOT use Tailwind `prose` / `prose-sm` wrappers — they conflict with Lattice's own typography components.
 
 ## Styling Rules
 

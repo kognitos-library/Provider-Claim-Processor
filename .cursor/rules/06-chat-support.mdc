@@ -9,13 +9,13 @@ alwaysApply: false
 ## Architecture
 
 ```
-Sidebar sessions list (client) ↔ useChat hook ↔ ChatProvider context
-  → POST /api/chat → Claude (Anthropic) with API tools → Kognitos REST API
-  → SSE stream back to client
+App sidebar "Chat" nav + session list (client) ↔ useChat hook ↔ ChatProvider context
+  → POST /api/chat → Claude (Anthropic) streaming with API tools → Kognitos REST API
+  → SSE stream back to client (token-by-token)
   → Messages persisted in Supabase
 ```
 
-Sessions and messages persist in Supabase. Claude answers questions using **registered API tools only** — it never runs arbitrary code. The chat UI lives at `/chat` with conversation history in the left sidebar.
+Sessions and messages persist in Supabase. Claude answers questions using **registered API tools only** — it never runs arbitrary code. The chat UI lives at `/chat` with conversation history always visible in the app sidebar.
 
 ## Registered Tools
 
@@ -44,39 +44,235 @@ To add a new tool, define an `Anthropic.Tool` in the `TOOLS` array in `app/api/c
 - `remark-gfm` — GFM support (tables, strikethrough, task lists)
 - `@tailwindcss/typography` — Prose styling for rendered markdown
 
-## Supabase schema
+## Supabase Schema (CRITICAL — project-specific table names)
 
-Tables are defined in `supabase/migrations/00000000000001_chat.sql`:
+### Table naming convention (CRITICAL)
 
-- **chat_sessions** — id, user_id, title, created_at, updated_at
-- **chat_messages** — id, session_id, role (user/assistant/tool), content, tool_call (jsonb), created_at
+Supabase tables must be **project-specific**, prefixed with the automation's slug (derived from the automation display name or ID). This prevents collisions when multiple apps share the same Supabase project.
+
+**Pattern:** `{automation_slug}_sessions` and `{automation_slug}_messages`
+
+Example: For the "Provider Claims" automation → prefix is `provider_claims`:
+- `provider_claims_chat_sessions`
+- `provider_claims_chat_messages`
+
+Store the table names as constants in `lib/supabase.ts`:
+
+```typescript
+export const TABLES = {
+  sessions: "{automation_slug}_sessions",
+  messages: "{automation_slug}_messages",
+} as const;
+```
+
+All API routes must reference `TABLES.sessions` and `TABLES.messages` — never hardcode generic table names like `chat_sessions` or `chat_messages`.
+
+### Schema structure
+
+Tables are defined in `supabase/migrations/`:
+
+- **{prefix}_sessions** — id, user_id, title, created_at, updated_at
+- **{prefix}_messages** — id, session_id, role (user/assistant/tool), content, tool_call (jsonb), created_at
 
 RLS is enabled with permissive policies. Cascade delete from sessions to messages.
+
+## Session Auto-Titling (CRITICAL)
+
+Sessions must NOT stay as "New conversation". After the first user–assistant exchange, use Claude to generate a concise title (max 6 words) from the user's message.
+
+In `app/api/chat/route.ts`, after persisting the assistant response, check if it's the first exchange (message count ≤ 2). If so, call Claude with a short prompt like:
+
+```
+Generate a short title (max 6 words) for a chat that starts with this message. Return ONLY the title, no quotes or punctuation.
+
+User message: {message}
+```
+
+Update the session title in Supabase with the result. This runs after the main response stream, so it doesn't slow down the chat.
+
+## Streaming (CRITICAL)
+
+Use `anthropic.messages.stream()` — NOT `anthropic.messages.create()` — for real token-by-token streaming. The `.on("text", callback)` handler sends each token as an SSE event immediately:
+
+The `send()` helper must be **defensive** — the client can disconnect mid-stream, causing `controller.enqueue()` to throw inside the `stream.on("text")` callback:
+
+```typescript
+let streamClosed = false;
+const send = (data: Record<string, unknown>) => {
+  if (streamClosed) return;
+  try {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  } catch { streamClosed = true; }
+};
+
+const stream = anthropic.messages.stream({ model, max_tokens, system, tools, messages });
+stream.on("text", (text) => {
+  fullResponse += text;
+  send({ type: "text", content: text });
+});
+const finalMessage = await stream.finalMessage();
+```
+
+### Tool loop newline separator
+
+When Claude calls tools and then continues with more text, the pre-tool and post-tool text gets concatenated without any break. Add a `\n\n` separator between tool loop iterations:
+
+```typescript
+if (iteration > 0 && fullResponse.length > 0) {
+  fullResponse += "\n\n";
+  send({ type: "text", content: "\n\n" });
+}
+```
+
+## Persisting Assistant Messages (CRITICAL)
+
+**Always** store the assistant message in Supabase after each turn — even when `fullAssistantResponse` is empty (tool-only responses). If you skip the insert when the text is empty, the next turn loads `[user1, user2]` from Supabase (two consecutive user messages), which the Anthropic API rejects with a 400 error.
+
+Store an empty string for tool-only responses — do NOT use a literal placeholder like `"(tool-only response)"` because it leaks into the UI when messages are reloaded.
+
+```typescript
+await supabaseAdmin.from(TABLES.messages)
+  .insert({ session_id: sessionId, role: "assistant", content: fullAssistantResponse || "" });
+```
+
+### Consecutive-role merge (safety net)
+
+Before sending loaded messages to Claude, merge any consecutive same-role messages with `\n\n`. This protects against orphaned DB rows from earlier bugs:
+
+```typescript
+const merged: Anthropic.MessageParam[] = [];
+for (const msg of filtered) {
+  const last = merged[merged.length - 1];
+  if (last && last.role === msg.role) {
+    last.content = last.content + "\n\n" + msg.content;
+  } else {
+    merged.push(msg);
+  }
+}
+```
+
+## Error Handling (CRITICAL)
+
+### Per-tool error catching
+
+Catch errors from individual tool executions and pass the error as the tool result. This lets Claude explain the failure gracefully instead of aborting the entire stream:
+
+```typescript
+let result: string;
+try {
+  result = await executeTool(block.name, block.input as Record<string, unknown>);
+} catch (e) {
+  result = `Tool error: ${e instanceof Error ? e.message : "Unknown error"}`;
+}
+toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+```
+
+### Server-side stream errors
+
+Wrap the SSE error send in try-catch (the controller may already be closed) and always log:
+
+```typescript
+} catch (err) {
+  console.error("[chat] Stream error:", err);
+  try { send({ type: "error", content: err.message }); } catch {}
+} finally {
+  controller.close();
+}
+```
+
+### Client-side error handling
+
+The SSE reader must handle `"error"` events — do NOT silently ignore them. Also surface non-OK HTTP responses and network errors:
+
+```typescript
+// SSE event handling
+} else if (event.type === "error") {
+  setError(event.content ?? "Something went wrong");
+}
+
+// Non-OK response
+if (!res.ok || !res.body) {
+  setError(`Failed to send message (${res.status})`);
+  return;
+}
+
+// Network errors (in the outer catch)
+} catch (err) {
+  setError(err instanceof Error ? err.message : "Network error");
+}
+```
+
+Expose `error: string | null` from `ChatProvider` and render a destructive-styled bubble in the chat page when non-null. Clear the error when the user sends a new message.
+
+### ChatStreamEvent type
+
+The `ChatStreamEvent` type must include ALL event types the server sends: `"text" | "tool_use" | "tool_result" | "done" | "error" | "title"`. Missing `"title"` from the union is a common oversight.
+
+### System prompt caching
+
+Use `null` as the sentinel for "not yet fetched" and check `cachedCode !== null` (not truthiness). An empty `english_code` is a valid cached value. Network failures should NOT be cached — leave `cachedCode` as `null` to allow retry on the next request.
 
 ## Key files
 
 | File | Purpose |
 |------|---------|
-| `lib/supabase.ts` | Supabase client (anon + admin) |
+| `lib/supabase.ts` | Supabase client (anon + admin) + TABLES constant |
 | `lib/chat/types.ts` | ChatSession, ChatMessage, ToolCallData, ChatStreamEvent |
 | `lib/chat/system-prompt.ts` | Builds Claude system prompt; fetches + caches automation English code |
 | `lib/chat/use-chat.ts` | Client hook: sessions CRUD, SSE streaming, message state |
 | `lib/chat/chat-context.tsx` | React context provider — shares chat state between sidebar and chat page |
-| `app/api/chat/route.ts` | Main endpoint: Claude tool loop + SSE streaming + Supabase persistence |
+| `app/api/chat/route.ts` | Main endpoint: Claude tool loop + SSE streaming + Supabase persistence + auto-titling |
 | `app/api/chat/sessions/route.ts` | GET (list) + POST (create) sessions |
 | `app/api/chat/sessions/[id]/route.ts` | GET (with messages) + PATCH (title) + DELETE |
-| `app/chat/page.tsx` | Chat page: message bubbles with markdown, empty state, input |
-| `supabase/migrations/00000000000001_chat.sql` | Database schema for chat tables |
+| `app/chat/page.tsx` | Chat page: message bubbles with markdown, empty state with suggestions, input |
+| `supabase/migrations/00000000000001_chat.sql` | Database schema for chat tables (project-prefixed) |
 
-## UI integration
+## UI Integration (CRITICAL — sidebar placement)
 
-Chat sessions are listed in the app sidebar (under the "Chat" nav item) via `ChatProvider` context in `app/layout.tsx`. The sidebar shows sessions only when on `/chat`. Clicking "Chat" when already on the page creates a new conversation.
+Chat sessions are listed **inside the app sidebar** — NOT in a separate middle panel on the chat page. The session list is **always visible** regardless of the current route.
 
-The chat page uses plain divs (not PageLayout/PageContent) to ensure the input stretches full width. Assistant messages render markdown via `react-markdown` with `remark-gfm`.
+### Sidebar structure
+
+```
+┌─────────────────────┐
+│ App Logo / Title     │
+│─────────────────────│
+│ Navigation           │
+│  ● Dashboard         │
+│  ○ Chat              │  ← navigates to /chat, clears active session, shows empty state with suggestions
+│─────────────────────│
+│  ○ Session title 1   │  ← shown only when sessions exist, no group header
+│  ○ Session title 2   │
+│  ○ ...               │
+│─────────────────────│
+│ Powered by Kognitos  │
+└─────────────────────┘
+```
+
+- "Chat" is a nav item under Navigation. Clicking it clears the active session (`setActiveSessionId(null)`) and navigates to `/chat`, showing the empty state with suggested questions.
+- Past sessions appear in a **separate headerless group** below Navigation (no "Conversations" label, no `[+]` button). This group only renders when `sessions.length > 0`.
+- Clicking a session loads its messages and navigates to `/chat` (if not already there).
+- Each session item shows a delete action on hover via `SidebarMenuAction showOnHover`.
+- The chat page itself (`app/chat/page.tsx`) takes the full content width — no session list panel.
+
+The `ChatProvider` context wraps the app in `app/layout.tsx` so sidebar and chat page share state.
+
+### Session creation rules
+
+- Clicking "Chat" in the sidebar nav **only navigates** to `/chat` — it does NOT create a new session.
+- New sessions are created **only when the user sends a message** without an active session. The `sendMessage` function in `ChatProvider` handles this: `if (!sessionId) { sessionId = await createSession(); }`.
+- Never call `createSession()` from navigation click handlers.
+
+### Markdown rendering
+
+- Wrap assistant messages in `.chat-markdown` div and pass `textProps={{ level: "small" }}` to the Lattice `Markdown` component (see `04-lattice-ui.mdc` Chat Markdown Sizing).
+- Do NOT use Tailwind `prose` / `prose-sm` wrappers — they conflict with Lattice's own typography components.
+- For user message bubbles (`bg-primary`), apply `className="text-primary-foreground"` directly on the `Text` component to prevent dark mode color inheritance issues (see `04-lattice-ui.mdc` Dark Mode Gotchas).
 
 ## Customizing for a new app
 
-1. Update `lib/chat/system-prompt.ts` — change the domain context, automation description, and rules to match the new automation.
-2. Update tool descriptions in `TOOLS` array — tailor the `description` fields for the new domain.
-3. Update `executeTool` in `app/api/chat/route.ts` if outputs need different decoding (e.g., Arrow IPC tables vs markdown text).
-4. Update suggested questions in `app/chat/page.tsx` — the quick-start buttons should reflect common questions for the new domain.
+1. **Table prefix** — Choose a `snake_case` project prefix and apply it to both table names in the migration and all `.from("...")` calls in the API routes.
+2. Update `lib/chat/system-prompt.ts` — change the domain context, automation description, and rules to match the new automation.
+3. Update tool descriptions in `TOOLS` array — tailor the `description` fields for the new domain.
+4. Update `executeTool` in `app/api/chat/route.ts` if outputs need different decoding (e.g., Arrow IPC tables vs markdown text).
+5. Update suggested questions in `app/chat/page.tsx` — the quick-start buttons should reflect common questions for the new domain.
