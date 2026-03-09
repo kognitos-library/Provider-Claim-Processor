@@ -23,7 +23,7 @@ export async function POST() {
   }
   const { data, error } = await supabaseAdmin
     .from(TABLES.sessions)
-    .insert({ title: null })
+    .insert({ title: "" })
     .select()
     .single();
 
