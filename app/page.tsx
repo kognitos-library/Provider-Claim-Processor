@@ -80,7 +80,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/runs?pageSize=50")
+    fetch("/api/runs?pageSize=200")
       .then((r) => r.json())
       .then((data) => setRuns(data.runs ?? []))
       .catch(console.error)
