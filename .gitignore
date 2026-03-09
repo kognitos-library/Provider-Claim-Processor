@@ -3,3 +3,5 @@ node_modules/
 .next/
 packages/*/node_modules/
 *.tgz
+!kognitos-lattice-*.tgz
+.vercel
