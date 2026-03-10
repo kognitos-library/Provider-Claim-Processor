@@ -80,6 +80,36 @@ function stateBadgeVariant(
   return map[state] ?? "default";
 }
 
+function MetricCard({
+  title,
+  value,
+  trend,
+}: {
+  title: string;
+  value: string;
+  trend?: { value: string; type: "positive" | "negative" };
+}) {
+  return (
+    <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+      <span className="text-base font-medium text-muted-foreground truncate">
+        {title}
+      </span>
+      {trend && (
+        <span
+          className={`text-xs font-medium ${
+            trend.type === "positive" ? "text-success" : "text-destructive"
+          }`}
+        >
+          {trend.value}
+        </span>
+      )}
+      <span className="text-3xl font-medium leading-9 text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 const chartConfig: TChartConfig = {
   totalCharges: {
     label: "Total Charges",
@@ -317,25 +347,25 @@ export default function DashboardPage() {
           title="Total Batches"
           value={String(runs.length)}
         />
-        <InsightsCard
+        <MetricCard
           title="Claims Submitted"
           value={totalPatients.toLocaleString()}
           trend={
             claimsTrend !== null
               ? {
-                  value: `${claimsTrend >= 0 ? "+" : ""}${claimsTrend}% vs prev`,
+                  value: `${claimsTrend >= 0 ? "+" : ""}${claimsTrend}% vs prev batch`,
                   type: claimsTrend >= 0 ? "positive" : "negative",
                 }
               : undefined
           }
         />
-        <InsightsCard
+        <MetricCard
           title="Total Charges"
           value={formatCurrency(totalCharges)}
           trend={
             chargeTrend !== null
               ? {
-                  value: `${chargeTrend >= 0 ? "+" : ""}${chargeTrend}% vs prev`,
+                  value: `${chargeTrend >= 0 ? "+" : ""}${chargeTrend}% vs prev batch`,
                   type: chargeTrend >= 0 ? "positive" : "negative",
                 }
               : undefined
