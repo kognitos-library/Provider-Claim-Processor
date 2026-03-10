@@ -22,12 +22,15 @@ import {
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  Area,
+  AreaChart,
   XAxis,
   YAxis,
   CartesianGrid,
-  Cell,
-  ReferenceLine,
   Tooltip,
+  Dot,
 } from "recharts";
 import type { RunSummary } from "@/lib/types";
 import type { TChartConfig } from "@kognitos/lattice";
@@ -77,18 +80,6 @@ function stateBadgeVariant(
   return map[state] ?? "default";
 }
 
-function lagColor(days: number): string {
-  if (days <= 3) return "#22c55e";
-  if (days <= 6) return "#f59e0b";
-  return "#ef4444";
-}
-
-function lagLabel(days: number): string {
-  if (days <= 3) return "On Track";
-  if (days <= 6) return "Moderate";
-  return "Critical";
-}
-
 const chartConfig: TChartConfig = {
   totalCharges: {
     label: "Total Charges",
@@ -120,87 +111,130 @@ function ChargeLagChart({ runs }: { runs: RunSummary[] }) {
     };
   });
 
-  const overallAvg =
-    Math.round(
-      (data.reduce((s, d) => s + d.avgLag, 0) / data.length) * 10
-    ) / 10;
+  const first = data[0]?.avgLag ?? 0;
+  const last = data[data.length - 1]?.avgLag ?? 0;
+  const delta = last - first;
+  const pctChange =
+    first > 0 ? Math.round(Math.abs(delta / first) * 100) : 0;
+  const trending = delta < -0.1 ? "down" : delta > 0.1 ? "up" : "flat";
+
+  const trendColor =
+    trending === "down" ? "#22c55e" : trending === "up" ? "#ef4444" : "#a3a3a3";
+  const trendArrow = trending === "down" ? "↓" : trending === "up" ? "↑" : "→";
+  const trendWord =
+    trending === "down"
+      ? "Decreasing"
+      : trending === "up"
+        ? "Increasing"
+        : "Stable";
+  const lineColor = "#6366f1";
 
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-start justify-between mb-1">
+    <div className="rounded-lg border bg-card p-5">
+      <div className="flex items-start justify-between mb-4">
         <div>
           <Title level="h4">Charge Lag</Title>
           <Text level="small" color="muted">
-            Average days from admission to charge submission per batch
+            Average days from admission to charge submission
           </Text>
         </div>
-        <div className="flex gap-4 text-xs">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#22c55e]" />
-            ≤3d
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
-            4–6d
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-            7d+
-          </span>
+        <div
+          className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+          style={{
+            color: trendColor,
+            backgroundColor: `${trendColor}14`,
+          }}
+        >
+          <span className="text-base leading-none">{trendArrow}</span>
+          {trendWord}
+          {pctChange > 0 && ` ${pctChange}%`}
         </div>
       </div>
       <ChartContainer config={lagChartConfig} className="h-64 w-full">
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="lagGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={lineColor} stopOpacity={0.15} />
+              <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            strokeDasharray="3 3"
+            vertical={false}
+            className="stroke-border"
+          />
           <XAxis
             dataKey="name"
             tick={{ fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
             className="fill-muted-foreground"
           />
           <YAxis
             tick={{ fontSize: 12 }}
             tickFormatter={(v) => `${v}d`}
+            axisLine={false}
+            tickLine={false}
+            domain={[0, "auto"]}
             className="fill-muted-foreground"
           />
           <Tooltip
-            cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
+            cursor={{
+              stroke: "hsl(var(--foreground) / 0.1)",
+              strokeWidth: 1,
+            }}
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const d = payload[0].payload as (typeof data)[number];
               return (
-                <div className="rounded-md border bg-popover px-3 py-2 shadow-md text-sm">
-                  <p className="font-medium">{d.date}</p>
-                  <p className="text-muted-foreground">
-                    Avg{" "}
+                <div className="rounded-lg border bg-popover px-3.5 py-2.5 shadow-lg text-sm">
+                  <p className="font-medium mb-0.5">{d.date}</p>
+                  <div className="flex items-baseline gap-1.5 text-muted-foreground">
                     <span
-                      className="font-semibold"
-                      style={{ color: lagColor(d.avgLag) }}
+                      className="text-lg font-bold"
+                      style={{ color: lineColor }}
                     >
                       {d.avgLag}d
-                    </span>{" "}
-                    across {d.patients} patients
-                  </p>
+                    </span>
+                    <span>avg across {d.patients} patients</span>
+                  </div>
                 </div>
               );
             }}
           />
-          <ReferenceLine
-            y={overallAvg}
-            stroke="hsl(var(--foreground) / 0.4)"
-            strokeDasharray="4 4"
-            label={{
-              value: `Overall Avg ${overallAvg}d`,
-              position: "insideTopRight",
-              fontSize: 11,
-              fill: "hsl(var(--muted-foreground))",
+          <Area
+            type="monotone"
+            dataKey="avgLag"
+            stroke={lineColor}
+            strokeWidth={2.5}
+            fill="url(#lagGradient)"
+            dot={(props: Record<string, unknown>) => {
+              const { cx, cy, index } = props as {
+                cx: number;
+                cy: number;
+                index: number;
+              };
+              const isLast = index === data.length - 1;
+              return (
+                <Dot
+                  key={index}
+                  cx={cx}
+                  cy={cy}
+                  r={isLast ? 5 : 3.5}
+                  fill={isLast ? trendColor : "#fff"}
+                  stroke={isLast ? trendColor : lineColor}
+                  strokeWidth={isLast ? 0 : 2}
+                />
+              );
+            }}
+            activeDot={{
+              r: 5,
+              fill: lineColor,
+              stroke: "#fff",
+              strokeWidth: 2,
             }}
           />
-          <Bar dataKey="avgLag" radius={[4, 4, 0, 0]}>
-            {data.map((entry, i) => (
-              <Cell key={i} fill={lagColor(entry.avgLag)} />
-            ))}
-          </Bar>
-        </BarChart>
+        </AreaChart>
       </ChartContainer>
     </div>
   );
