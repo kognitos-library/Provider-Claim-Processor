@@ -309,6 +309,24 @@ export default function DashboardPage() {
         )
       : null;
 
+  const now = Date.now();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const thisWeekBatches = runs.filter(
+    (r) => now - new Date(r.createdAt).getTime() < weekMs
+  ).length;
+  const prevWeekBatches = runs.filter((r) => {
+    const age = now - new Date(r.createdAt).getTime();
+    return age >= weekMs && age < weekMs * 2;
+  }).length;
+  const batchTrend =
+    prevWeekBatches > 0
+      ? Math.round(
+          ((thisWeekBatches - prevWeekBatches) / prevWeekBatches) * 100
+        )
+      : thisWeekBatches > 0
+        ? 100
+        : null;
+
   const totalCorrected = completedRuns.reduce(
     (s, r) => s + r.correctedCount,
     0
@@ -348,9 +366,17 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-        <InsightsCard
-          title="Total Batches"
+        <MetricCard
+          title="Claim Batches"
           value={String(runs.length)}
+          trend={
+            batchTrend !== null
+              ? {
+                  value: `${batchTrend >= 0 ? "+" : ""}${batchTrend}% vs prev week`,
+                  type: batchTrend >= 0 ? "positive" : "negative",
+                }
+              : undefined
+          }
         />
         <MetricCard
           title="Claims Submitted"
