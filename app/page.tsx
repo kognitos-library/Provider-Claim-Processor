@@ -9,8 +9,6 @@ import {
   Text,
   Skeleton,
   ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
   Table,
   TableBody,
   TableCell,
@@ -20,9 +18,8 @@ import {
   Icon,
 } from "@kognitos/lattice";
 import {
-  BarChart,
   Bar,
-  LineChart,
+  ComposedChart,
   Line,
   Area,
   AreaChart,
@@ -31,6 +28,7 @@ import {
   CartesianGrid,
   Tooltip,
   Dot,
+  ReferenceLine,
 } from "recharts";
 import type { RunSummary } from "@/lib/types";
 import type { TChartConfig } from "@kognitos/lattice";
@@ -110,10 +108,29 @@ function MetricCard({
   );
 }
 
-const chartConfig: TChartConfig = {
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function movingAvg(arr: number[], window: number): (number | null)[] {
+  return arr.map((_, i) => {
+    if (i < window - 1) return null;
+    const slice = arr.slice(i - window + 1, i + 1);
+    return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length);
+  });
+}
+
+const chargesChartConfig: TChartConfig = {
   totalCharges: {
     label: "Total Charges",
-    color: "var(--chart-1)",
+    color: "#10b981",
+  },
+  trend: {
+    label: "5-Batch Avg",
+    color: "#6366f1",
   },
 };
 
@@ -332,14 +349,55 @@ export default function DashboardPage() {
     0
   );
 
-  const chartData = completedRuns
+  const chargesRuns = completedRuns
     .filter((r) => r.totalCharges > 0)
-    .reverse()
-    .map((r, i) => ({
-      name: `Batch ${i + 1}`,
-      totalCharges: r.totalCharges,
-      date: formatDate(r.createdAt),
-    }));
+    .reverse();
+  const chargesValues = chargesRuns.map((r) => r.totalCharges);
+  const ma = movingAvg(chargesValues, 5);
+  const avgCharge =
+    chargesValues.length > 0
+      ? Math.round(
+          chargesValues.reduce((a, b) => a + b, 0) / chargesValues.length
+        )
+      : 0;
+  const highBatchIdx = chargesValues.indexOf(Math.max(...chargesValues));
+  const lowBatchIdx = chargesValues.indexOf(Math.min(...chargesValues));
+
+  const chartData = chargesRuns.map((r, i) => ({
+    name: formatShortDate(r.createdAt),
+    totalCharges: r.totalCharges,
+    trend: ma[i],
+    patients: r.patientCount,
+    perPatient:
+      r.patientCount > 0
+        ? Math.round(r.totalCharges / r.patientCount)
+        : 0,
+    date: formatDate(r.createdAt),
+    isHigh: i === highBatchIdx,
+    isLow: i === lowBatchIdx,
+  }));
+
+  const chargesTrending = (() => {
+    if (chartData.length < 2) return "flat" as const;
+    const recent5 = chargesValues.slice(-5);
+    const prev5 = chargesValues.slice(-10, -5);
+    if (prev5.length === 0) return "flat" as const;
+    const recentAvg = recent5.reduce((a, b) => a + b, 0) / recent5.length;
+    const prevAvg = prev5.reduce((a, b) => a + b, 0) / prev5.length;
+    const delta = (recentAvg - prevAvg) / prevAvg;
+    if (delta > 0.05) return "up" as const;
+    if (delta < -0.05) return "down" as const;
+    return "flat" as const;
+  })();
+  const chargesTrendPct = (() => {
+    if (chartData.length < 6) return 0;
+    const recent5 = chargesValues.slice(-5);
+    const prev5 = chargesValues.slice(-10, -5);
+    if (prev5.length === 0) return 0;
+    const recentAvg = recent5.reduce((a, b) => a + b, 0) / recent5.length;
+    const prevAvg = prev5.reduce((a, b) => a + b, 0) / prev5.length;
+    return Math.round(Math.abs((recentAvg - prevAvg) / prevAvg) * 100);
+  })();
 
   if (loading) {
     return (
@@ -443,37 +501,159 @@ export default function DashboardPage() {
       <ChargeLagChart runs={completedRuns} />
 
       {chartData.length > 0 && (
-        <div className="rounded-lg border bg-card p-4">
-          <Title level="h4" className="mb-4">
-            Charges by Batch
-          </Title>
-          <ChartContainer config={chartConfig} className="h-64 w-full">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <div className="rounded-lg border bg-card p-5">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <Title level="h4">Charges by Batch</Title>
+              <Text level="small" color="muted">
+                Batch charges with 5-batch moving average
+              </Text>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="inline-block w-3 h-3 rounded-sm bg-[#10b981]/70" />
+                Charges
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="inline-block w-3 h-0.5 bg-[#6366f1] rounded" />
+                Trend
+              </div>
+              {chargesTrending !== "flat" && (
+                <div
+                  className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{
+                    color:
+                      chargesTrending === "up" ? "#22c55e" : "#ef4444",
+                    backgroundColor:
+                      chargesTrending === "up"
+                        ? "#22c55e14"
+                        : "#ef444414",
+                  }}
+                >
+                  <span className="text-sm leading-none">
+                    {chargesTrending === "up" ? "↑" : "↓"}
+                  </span>
+                  {chargesTrendPct}%
+                </div>
+              )}
+            </div>
+          </div>
+          <ChartContainer config={chargesChartConfig} className="h-72 w-full">
+            <ComposedChart data={chartData}>
+              <defs>
+                <linearGradient
+                  id="chargesGradient"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                className="stroke-border"
+              />
               <XAxis
                 dataKey="name"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                interval={Math.max(0, Math.floor(chartData.length / 10) - 1)}
                 className="fill-muted-foreground"
               />
               <YAxis
                 tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
                 className="fill-muted-foreground"
               />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(value) => formatCurrency(Number(value))}
-                    labelKey="date"
-                  />
-                }
+              <ReferenceLine
+                y={avgCharge}
+                stroke="hsl(var(--foreground) / 0.15)"
+                strokeDasharray="4 4"
+                label={{
+                  value: `Avg ${formatCurrency(avgCharge)}`,
+                  position: "insideTopRight",
+                  fontSize: 10,
+                  fill: "hsl(var(--muted-foreground))",
+                }}
+              />
+              <Tooltip
+                cursor={{
+                  stroke: "hsl(var(--foreground) / 0.08)",
+                  strokeWidth: 1,
+                }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.[0]) return null;
+                  const d = payload[0].payload as (typeof chartData)[number];
+                  const vsAvg = avgCharge
+                    ? Math.round(
+                        ((d.totalCharges - avgCharge) / avgCharge) * 100
+                      )
+                    : 0;
+                  return (
+                    <div className="rounded-lg border bg-popover px-4 py-3 shadow-lg text-sm min-w-[180px]">
+                      <p className="font-medium mb-2">{d.date}</p>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">
+                            Total
+                          </span>
+                          <span className="font-semibold text-[#10b981]">
+                            {formatCurrency(d.totalCharges)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">
+                            Patients
+                          </span>
+                          <span className="font-medium">{d.patients}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">
+                            Per patient
+                          </span>
+                          <span className="font-medium">
+                            {formatCurrency(d.perPatient)}
+                          </span>
+                        </div>
+                        <div className="border-t pt-1.5 flex justify-between gap-4">
+                          <span className="text-muted-foreground">
+                            vs avg
+                          </span>
+                          <span
+                            className={`font-semibold ${vsAvg >= 0 ? "text-success" : "text-destructive"}`}
+                          >
+                            {vsAvg >= 0 ? "+" : ""}
+                            {vsAvg}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }}
               />
               <Bar
                 dataKey="totalCharges"
-                fill="var(--chart-1)"
-                radius={[4, 4, 0, 0]}
+                fill="url(#chargesGradient)"
+                radius={[3, 3, 0, 0]}
+                maxBarSize={24}
               />
-            </BarChart>
+              <Line
+                type="monotone"
+                dataKey="trend"
+                stroke="#6366f1"
+                strokeWidth={2}
+                dot={false}
+                connectNulls={false}
+                strokeDasharray=""
+              />
+            </ComposedChart>
           </ChartContainer>
         </div>
       )}
