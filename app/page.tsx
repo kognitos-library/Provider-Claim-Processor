@@ -260,6 +260,25 @@ export default function DashboardPage() {
       ? Math.round((completedRuns.length / runs.length) * 100)
       : 0;
 
+  const latestBatch = completedRuns[0];
+  const prevBatch = completedRuns[1];
+  const claimsTrend =
+    latestBatch && prevBatch && prevBatch.patientCount > 0
+      ? Math.round(
+          ((latestBatch.patientCount - prevBatch.patientCount) /
+            prevBatch.patientCount) *
+            100
+        )
+      : null;
+  const chargeTrend =
+    latestBatch && prevBatch && prevBatch.totalCharges > 0
+      ? Math.round(
+          ((latestBatch.totalCharges - prevBatch.totalCharges) /
+            prevBatch.totalCharges) *
+            100
+        )
+      : null;
+
   const chartData = completedRuns
     .filter((r) => r.totalCharges > 0)
     .reverse()
@@ -299,12 +318,28 @@ export default function DashboardPage() {
           value={String(runs.length)}
         />
         <InsightsCard
-          title="Patients Billed"
-          value={String(totalPatients)}
+          title="Claims Submitted"
+          value={totalPatients.toLocaleString()}
+          trend={
+            claimsTrend !== null
+              ? {
+                  value: `${claimsTrend >= 0 ? "+" : ""}${claimsTrend}% vs prev`,
+                  type: claimsTrend >= 0 ? "positive" : "negative",
+                }
+              : undefined
+          }
         />
         <InsightsCard
           title="Total Charges"
           value={formatCurrency(totalCharges)}
+          trend={
+            chargeTrend !== null
+              ? {
+                  value: `${chargeTrend >= 0 ? "+" : ""}${chargeTrend}% vs prev`,
+                  type: chargeTrend >= 0 ? "positive" : "negative",
+                }
+              : undefined
+          }
         />
         <InsightsCard
           title="Success Rate"
