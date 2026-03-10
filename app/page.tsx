@@ -309,6 +309,11 @@ export default function DashboardPage() {
         )
       : null;
 
+  const totalCorrected = completedRuns.reduce(
+    (s, r) => s + r.correctedCount,
+    0
+  );
+
   const chartData = completedRuns
     .filter((r) => r.totalCharges > 0)
     .reverse()
@@ -322,8 +327,8 @@ export default function DashboardPage() {
     return (
       <div className="p-6 space-y-6">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-28" />
           ))}
         </div>
@@ -342,7 +347,7 @@ export default function DashboardPage() {
         </Text>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <InsightsCard
           title="Total Batches"
           value={String(runs.length)}
@@ -371,12 +376,45 @@ export default function DashboardPage() {
               : undefined
           }
         />
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col justify-between gap-3 relative overflow-hidden">
+          <span className="text-base font-medium text-muted-foreground">
+            Corrected by Kognitos
+          </span>
+          <div className="flex items-end justify-between">
+            <span className="text-3xl font-medium leading-9 text-foreground">
+              {totalCorrected.toLocaleString()}
+            </span>
+            <span className="text-[2.5rem] leading-none opacity-15 select-none">
+              ✦
+            </span>
+          </div>
+          {totalCorrected > 0 && totalPatients > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[#6366f1] transition-all"
+                  style={{
+                    width: `${Math.min(
+                      (totalCorrected / totalPatients) * 100,
+                      100
+                    )}%`,
+                  }}
+                />
+              </div>
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                {Math.round((totalCorrected / totalPatients) * 100)}% of claims
+              </span>
+            </div>
+          )}
+        </div>
         <InsightsCard
           title="Success Rate"
           value={`${successRate}%`}
           variant={successRate >= 90 ? "success" : successRate >= 70 ? "default" : "destructive"}
         />
       </div>
+
+      <ChargeLagChart runs={completedRuns} />
 
       {chartData.length > 0 && (
         <div className="rounded-lg border bg-card p-4">
@@ -413,8 +451,6 @@ export default function DashboardPage() {
           </ChartContainer>
         </div>
       )}
-
-      <ChargeLagChart runs={completedRuns} />
 
       <div className="rounded-lg border bg-card">
         <div className="p-4 border-b">

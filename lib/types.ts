@@ -77,6 +77,7 @@ export interface RunSummary {
   createdAt: string;
   patientCount: number;
   totalCharges: number;
+  correctedCount: number;
   kognitosUrl: string;
   chargeLag: ChargeLag[];
 }

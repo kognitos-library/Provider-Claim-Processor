@@ -155,12 +155,18 @@ export function toRunSummary(run: RawRun): RunSummary {
   >;
   const patients = parsePatients(outputs);
 
+  const corrected = outputs.corrected_by_kognitos_count as
+    | { number?: { lo?: number } }
+    | undefined;
+  const correctedCount = corrected?.number?.lo ?? 0;
+
   return {
     id,
     state,
     createdAt: run.create_time,
     patientCount: patients.length,
     totalCharges: patients.reduce((sum, p) => sum + p.totalCharges, 0),
+    correctedCount,
     kognitosUrl: kognitosRunUrl(id),
     chargeLag: parseChargeLag(outputs),
   };
