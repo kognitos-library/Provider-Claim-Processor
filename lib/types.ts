@@ -60,6 +60,11 @@ export interface EmailStatus {
   emailSent: boolean;
 }
 
+export interface ChargeLag {
+  patientName: string;
+  days: number;
+}
+
 export interface ClaimField {
   section: string;
   field: string;
@@ -73,6 +78,7 @@ export interface RunSummary {
   patientCount: number;
   totalCharges: number;
   kognitosUrl: string;
+  chargeLag: ChargeLag[];
 }
 
 export interface RunDetail extends RunSummary {

@@ -19,8 +19,18 @@ import {
   TableRow,
   Icon,
 } from "@kognitos/lattice";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
-import type { RunSummary } from "@/lib/types";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Cell,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
+import type { RunSummary, ChargeLag } from "@/lib/types";
 import type { TChartConfig } from "@kognitos/lattice";
 
 function formatCurrency(value: number): string {
@@ -68,12 +78,134 @@ function stateBadgeVariant(
   return map[state] ?? "default";
 }
 
+function lagColor(days: number): string {
+  if (days <= 3) return "#22c55e";
+  if (days <= 6) return "#f59e0b";
+  return "#ef4444";
+}
+
+function lagLabel(days: number): string {
+  if (days <= 3) return "On Track";
+  if (days <= 6) return "Moderate";
+  return "Critical";
+}
+
 const chartConfig: TChartConfig = {
   totalCharges: {
     label: "Total Charges",
     color: "var(--chart-1)",
   },
 };
+
+function ChargeLagChart({ runs }: { runs: RunSummary[] }) {
+  const latestWithLag = runs.find((r) => r.chargeLag.length > 0);
+  if (!latestWithLag) return null;
+
+  const data = latestWithLag.chargeLag;
+  const avgLag = Math.round(
+    data.reduce((s, d) => s + d.days, 0) / data.length
+  );
+  const maxLag = Math.max(...data.map((d) => d.days));
+
+  const lastName = (name: string) => {
+    const parts = name.split(",");
+    return parts[0]?.trim() ?? name;
+  };
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <Title level="h4">Charge Lag by Patient</Title>
+          <Text level="small" color="muted">
+            Days from admission to charge submission (latest batch)
+          </Text>
+        </div>
+        <div className="flex gap-4 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#22c55e]" />
+            ≤3d
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
+            4–6d
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
+            7d+
+          </span>
+        </div>
+      </div>
+      <div style={{ height: Math.max(200, data.length * 36 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 8, right: 40, bottom: 8, left: 4 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              horizontal={false}
+              className="stroke-border"
+            />
+            <XAxis
+              type="number"
+              domain={[0, maxLag + 2]}
+              tick={{ fontSize: 12 }}
+              tickFormatter={(v) => `${v}d`}
+              className="fill-muted-foreground"
+            />
+            <YAxis
+              type="category"
+              dataKey="patientName"
+              width={110}
+              tick={{ fontSize: 11 }}
+              tickFormatter={lastName}
+              className="fill-muted-foreground"
+            />
+            <Tooltip
+              cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
+              content={({ active, payload }) => {
+                if (!active || !payload?.[0]) return null;
+                const d = payload[0].payload as ChargeLag;
+                return (
+                  <div className="rounded-md border bg-popover px-3 py-2 shadow-md text-sm">
+                    <p className="font-medium">{d.patientName}</p>
+                    <p className="text-muted-foreground">
+                      {d.days} day{d.days !== 1 ? "s" : ""} —{" "}
+                      <span
+                        className="font-semibold"
+                        style={{ color: lagColor(d.days) }}
+                      >
+                        {lagLabel(d.days)}
+                      </span>
+                    </p>
+                  </div>
+                );
+              }}
+            />
+            <ReferenceLine
+              x={avgLag}
+              stroke="hsl(var(--foreground) / 0.4)"
+              strokeDasharray="4 4"
+              label={{
+                value: `Avg ${avgLag}d`,
+                position: "top",
+                fontSize: 11,
+                fill: "hsl(var(--muted-foreground))",
+              }}
+            />
+            <Bar dataKey="days" radius={[0, 4, 4, 0]} barSize={20}>
+              {data.map((entry, i) => (
+                <Cell key={i} fill={lagColor(entry.days)} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -183,6 +315,8 @@ export default function DashboardPage() {
           </ChartContainer>
         </div>
       )}
+
+      <ChargeLagChart runs={completedRuns} />
 
       <div className="rounded-lg border bg-card">
         <div className="p-4 border-b">

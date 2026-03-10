@@ -7,6 +7,7 @@ import type {
   PendingPatient,
   EmailStatus,
   ClaimField,
+  ChargeLag,
 } from "./types";
 import { kognitosRunUrl } from "./kognitos";
 
@@ -115,6 +116,24 @@ function parseClaimFields(
   });
 }
 
+function parseChargeLag(
+  outputs: Record<string, unknown>
+): ChargeLag[] {
+  const tbl = outputs.charge_lag as
+    | { table?: { inline?: { data?: string } } }
+    | undefined;
+  const b64 = tbl?.table?.inline?.data;
+  if (!b64) return [];
+
+  const rows = decodeArrowTable(b64);
+  return rows
+    .map((r) => ({
+      patientName: String(r["Patient Name"] ?? ""),
+      days: parseInt(String(r["Charge Lag"] ?? "0"), 10) || 0,
+    }))
+    .sort((a, b) => b.days - a.days);
+}
+
 function parsePdfUrls(
   outputs: Record<string, unknown>
 ): string[] {
@@ -143,6 +162,7 @@ export function toRunSummary(run: RawRun): RunSummary {
     patientCount: patients.length,
     totalCharges: patients.reduce((sum, p) => sum + p.totalCharges, 0),
     kognitosUrl: kognitosRunUrl(id),
+    chargeLag: parseChargeLag(outputs),
   };
 }
 
