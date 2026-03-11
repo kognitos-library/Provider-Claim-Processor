@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  InsightsCard,
   Badge,
   Title,
   Text,
@@ -425,7 +424,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <MetricCard
-          title="Claim Batches"
+          title="Claim Batches Processed"
           value={String(runs.length)}
           trend={
             batchTrend !== null
@@ -437,7 +436,7 @@ export default function DashboardPage() {
           }
         />
         <MetricCard
-          title="Claims Submitted"
+          title="Total Claims Submitted"
           value={totalPatients.toLocaleString()}
           trend={
             claimsTrend !== null
@@ -466,7 +465,7 @@ export default function DashboardPage() {
           </span>
           {totalPatients > 0 && (
             <span className="text-xs font-medium text-muted-foreground">
-              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims by Kognitos
+              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims
             </span>
           )}
           <span
@@ -479,11 +478,25 @@ export default function DashboardPage() {
             {totalCorrected.toLocaleString()} / {totalPatients.toLocaleString()}
           </span>
         </div>
-        <InsightsCard
-          title="Success Rate"
-          value={`${successRate}%`}
-          variant={successRate >= 90 ? "success" : successRate >= 70 ? "default" : "destructive"}
-        />
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+          <span className="text-base font-medium text-muted-foreground truncate">
+            Success Rate
+          </span>
+          <span className="text-xs font-medium text-muted-foreground">
+            Auto Completion
+          </span>
+          <span
+            className={`text-3xl font-medium leading-9 ${
+              successRate >= 90
+                ? "text-success"
+                : successRate >= 70
+                  ? "text-foreground"
+                  : "text-destructive"
+            }`}
+          >
+            {successRate}%
+          </span>
+        </div>
       </div>
 
       <ChargeLagChart runs={completedRuns} />
