@@ -116,11 +116,11 @@ function ChargeLagChart({ runs }: { runs: RunSummary[] }) {
     .reverse();
   if (runsWithLag.length === 0) return null;
 
-  const data = runsWithLag.map((r, i) => {
+  const data = runsWithLag.map((r) => {
     const avg =
       r.chargeLag.reduce((s, d) => s + d.days, 0) / r.chargeLag.length;
     return {
-      name: `Batch ${i + 1}`,
+      name: formatShortDate(r.createdAt),
       avgLag: Math.round(avg * 10) / 10,
       patients: r.chargeLag.length,
       date: formatDate(r.createdAt),
@@ -526,7 +526,7 @@ export default function DashboardPage() {
         </div>
         <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
           <span className="text-base font-medium text-muted-foreground truncate">
-            Pre-Submission Issues Resolved
+            Submission Issues Intercepted
           </span>
           <span
             className={`text-3xl font-medium leading-9 ${
