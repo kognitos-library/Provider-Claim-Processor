@@ -465,25 +465,18 @@ export default function DashboardPage() {
             Claim Issues Resolved
           </span>
           {totalPatients > 0 && (
-            <span
-              className={`text-xs font-medium ${
-                (totalCorrected / totalPatients) * 100 > 0
-                  ? "text-success"
-                  : "text-muted-foreground"
-              }`}
-            >
-              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims
+            <span className="text-xs font-medium text-muted-foreground">
+              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims by Kognitos
             </span>
           )}
           <span
             className={`text-3xl font-medium leading-9 ${
-              totalPatients > 0 && (totalCorrected / totalPatients) * 100 > 0
+              totalPatients > 0 && totalCorrected > 0
                 ? "text-success"
                 : "text-foreground"
             }`}
           >
-            {totalPatients > 0 && (totalCorrected / totalPatients) * 100 > 0 ? "+" : ""}
-            {totalPatients > 0 ? Math.round((totalCorrected / totalPatients) * 100) : 0}%
+            {totalCorrected.toLocaleString()} / {totalPatients.toLocaleString()}
           </span>
         </div>
         <InsightsCard
