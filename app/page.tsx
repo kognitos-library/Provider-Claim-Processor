@@ -77,36 +77,6 @@ function stateBadgeVariant(
   return map[state] ?? "default";
 }
 
-function MetricCard({
-  title,
-  value,
-  trend,
-}: {
-  title: string;
-  value: string;
-  trend?: { value: string; type: "positive" | "negative" };
-}) {
-  return (
-    <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
-      <span className="text-base font-medium text-muted-foreground truncate">
-        {title}
-      </span>
-      {trend && (
-        <span
-          className={`text-xs font-medium ${
-            trend.type === "positive" ? "text-success" : "text-destructive"
-          }`}
-        >
-          {trend.value}
-        </span>
-      )}
-      <span className="text-3xl font-medium leading-9 text-foreground">
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function formatShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -364,6 +334,62 @@ export default function DashboardPage() {
     (s, r) => s + r.correctedCount,
     0
   );
+  const chargesProtected =
+    totalPatients > 0
+      ? (totalCorrected / totalPatients) * totalCharges
+      : 0;
+
+  const allChargeLagDays = completedRuns.flatMap((r) =>
+    r.chargeLag.map((c) => c.days)
+  );
+  const avgChargeLagDays =
+    allChargeLagDays.length > 0
+      ? allChargeLagDays.reduce((a, b) => a + b, 0) / allChargeLagDays.length
+      : null;
+  const chargeLagLatestAvg =
+    latestBatch && latestBatch.chargeLag.length > 0
+      ? latestBatch.chargeLag.reduce((s, d) => s + d.days, 0) /
+        latestBatch.chargeLag.length
+      : null;
+  const chargeLagPrevAvg =
+    prevBatch && prevBatch.chargeLag.length > 0
+      ? prevBatch.chargeLag.reduce((s, d) => s + d.days, 0) /
+        prevBatch.chargeLag.length
+      : null;
+  const chargeLagTrend: "up" | "down" =
+    chargeLagLatestAvg != null && chargeLagPrevAvg != null
+      ? chargeLagLatestAvg > chargeLagPrevAvg
+        ? "up"
+        : "down"
+      : "down";
+
+  const thisWeekChargeLagRuns = completedRuns.filter(
+    (r) => now - new Date(r.createdAt).getTime() < weekMs
+  );
+  const lastWeekChargeLagRuns = completedRuns.filter((r) => {
+    const age = now - new Date(r.createdAt).getTime();
+    return age >= weekMs && age < weekMs * 2;
+  });
+  const thisWeekChargeLagDays = thisWeekChargeLagRuns.flatMap((r) =>
+    r.chargeLag.map((c) => c.days)
+  );
+  const lastWeekChargeLagDays = lastWeekChargeLagRuns.flatMap((r) =>
+    r.chargeLag.map((c) => c.days)
+  );
+  const thisWeekLagAvg =
+    thisWeekChargeLagDays.length > 0
+      ? thisWeekChargeLagDays.reduce((a, b) => a + b, 0) /
+        thisWeekChargeLagDays.length
+      : null;
+  const lastWeekLagAvg =
+    lastWeekChargeLagDays.length > 0
+      ? lastWeekChargeLagDays.reduce((a, b) => a + b, 0) /
+        lastWeekChargeLagDays.length
+      : null;
+  const chargeLagVsLastWeekPct =
+    lastWeekLagAvg != null && lastWeekLagAvg > 0 && thisWeekLagAvg != null
+      ? ((thisWeekLagAvg - lastWeekLagAvg) / lastWeekLagAvg) * 100
+      : null;
 
   const chargesRuns = completedRuns
     .filter((r) => r.totalCharges > 0)
@@ -440,33 +466,40 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-        <MetricCard
-          title="Claim Batches Processed"
-          value={String(runs.length)}
-          trend={
-            batchTrend !== null
-              ? {
-                  value: `${batchTrend >= 0 ? "+" : ""}${batchTrend}% vs prev week`,
-                  type: batchTrend >= 0 ? "positive" : "negative",
-                }
-              : undefined
-          }
-        />
-        <MetricCard
-          title="Total Claims Submitted"
-          value={totalPatients.toLocaleString()}
-          trend={
-            claimsTrend !== null
-              ? {
-                  value: `${claimsTrend >= 0 ? "+" : ""}${claimsTrend}% vs prev batch`,
-                  type: claimsTrend >= 0 ? "positive" : "negative",
-                }
-              : undefined
-          }
-        />
         <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
           <span className="text-base font-medium text-muted-foreground truncate">
-            Total Charges
+            Total Claims Submitted
+          </span>
+          <span className="text-3xl font-medium leading-9 text-foreground">
+            {totalPatients.toLocaleString()}
+          </span>
+          {claimsTrend !== null && (
+            <span
+              className={`text-xs font-medium ${
+                claimsTrend >= 0 ? "text-success" : "text-destructive"
+              }`}
+            >
+              {claimsTrend >= 0 ? "+" : ""}{claimsTrend}% vs prev batch
+            </span>
+          )}
+        </div>
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+          <span className="text-base font-medium text-muted-foreground truncate">
+            Touchless Submission Rate
+          </span>
+          <span className="text-3xl font-medium leading-9 text-success">
+            97%
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">
+            Claims submitted without human intervention
+          </span>
+        </div>
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+          <span className="text-base font-medium text-muted-foreground truncate">
+            Total Charges Submitted
+          </span>
+          <span className="text-3xl font-medium leading-9 text-foreground">
+            {formatCurrency(totalCharges)}
           </span>
           <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
             Average Claim:{" "}
@@ -490,39 +523,84 @@ export default function DashboardPage() {
               "—"
             )}
           </span>
-          <span className="text-3xl font-medium leading-9 text-foreground">
-            {formatCurrency(totalCharges)}
-          </span>
         </div>
         <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
           <span className="text-base font-medium text-muted-foreground truncate">
             Pre-Submission Issues Resolved
           </span>
-          {totalPatients > 0 && (
-            <span className="text-xs font-medium text-muted-foreground">
-              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims
-            </span>
-          )}
           <span
             className={`text-3xl font-medium leading-9 ${
-              totalPatients > 0 && totalCorrected > 0
-                ? "text-success"
-                : "text-foreground"
+              totalCorrected > 0 ? "text-success" : "text-foreground"
             }`}
           >
-            {totalCorrected.toLocaleString()} / {totalPatients.toLocaleString()}
+            {totalCorrected.toLocaleString()} claims
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">
+            <span className="text-success font-normal">
+              {chargesProtected >= 1_000_000
+                ? `$${(chargesProtected / 1_000_000).toFixed(1)}M`
+                : chargesProtected >= 1_000
+                  ? `$${Math.round(chargesProtected / 1_000)}K`
+                  : formatCurrency(chargesProtected)}
+            </span>{" "}
+            in charges protected
           </span>
         </div>
         <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
           <span className="text-base font-medium text-muted-foreground truncate">
-            Touchless Submission Rate
+            Avg Claim Value
           </span>
-          <span className="text-xs font-medium text-muted-foreground">
-            Claims submitted without human intervention
+          <span className="text-3xl font-medium leading-9 text-foreground flex items-center gap-1">
+            {totalPatients > 0 ? (
+              <>
+                {formatCurrency(totalCharges / totalPatients)}
+                <span
+                  className={`inline-block text-3xl font-light leading-9 ${
+                    avgClaimTrend === "down" ? "text-destructive" : "text-success"
+                  }`}
+                  aria-hidden
+                >
+                  {avgClaimTrend === "down" ? "↓" : "↑"}
+                </span>
+              </>
+            ) : (
+              "—"
+            )}
           </span>
-          <span className="text-3xl font-medium leading-9 text-success">
-            97%
+        </div>
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+          <span className="text-base font-medium text-muted-foreground truncate">
+            Charge Lag
           </span>
+          <span className="text-3xl font-medium leading-9 text-foreground flex items-center gap-1">
+            {avgChargeLagDays != null ? (
+              <>
+                {avgChargeLagDays.toFixed(1)} Days
+                <span
+                  className={`inline-block text-3xl font-light leading-9 ${
+                    chargeLagTrend === "up" ? "text-destructive" : "text-success"
+                  }`}
+                  aria-hidden
+                >
+                  {chargeLagTrend === "up" ? "↑" : "↓"}
+                </span>
+              </>
+            ) : (
+              "—"
+            )}
+          </span>
+          {chargeLagVsLastWeekPct != null && (
+            <span
+              className={`text-xs font-normal ${
+                chargeLagVsLastWeekPct <= 0
+                  ? "text-success"
+                  : "text-destructive"
+              }`}
+            >
+              {chargeLagVsLastWeekPct >= 0 ? "+" : ""}
+              {chargeLagVsLastWeekPct.toFixed(1)}% vs last week
+            </span>
+          )}
         </div>
       </div>
 
