@@ -460,36 +460,31 @@ export default function DashboardPage() {
               : undefined
           }
         />
-        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col justify-between gap-3 relative overflow-hidden">
-          <span className="text-base font-medium text-muted-foreground">
-            Corrected by Kognitos
+        <div className="rounded-lg border bg-card min-w-[200px] p-5 flex flex-col gap-2">
+          <span className="text-base font-medium text-muted-foreground truncate">
+            Claim Issues Resolved
           </span>
-          <div className="flex items-end justify-between">
-            <span className="text-3xl font-medium leading-9 text-foreground">
-              {totalCorrected.toLocaleString()}
+          {totalPatients > 0 && (
+            <span
+              className={`text-xs font-medium ${
+                (totalCorrected / totalPatients) * 100 > 0
+                  ? "text-success"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {totalCorrected.toLocaleString()} of {totalPatients.toLocaleString()} claims
             </span>
-            <span className="text-[2.5rem] leading-none opacity-15 select-none">
-              ✦
-            </span>
-          </div>
-          {totalCorrected > 0 && totalPatients > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-[#6366f1] transition-all"
-                  style={{
-                    width: `${Math.min(
-                      (totalCorrected / totalPatients) * 100,
-                      100
-                    )}%`,
-                  }}
-                />
-              </div>
-              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                {Math.round((totalCorrected / totalPatients) * 100)}% of claims
-              </span>
-            </div>
           )}
+          <span
+            className={`text-3xl font-medium leading-9 ${
+              totalPatients > 0 && (totalCorrected / totalPatients) * 100 > 0
+                ? "text-success"
+                : "text-foreground"
+            }`}
+          >
+            {totalPatients > 0 && (totalCorrected / totalPatients) * 100 > 0 ? "+" : ""}
+            {totalPatients > 0 ? Math.round((totalCorrected / totalPatients) * 100) : 0}%
+          </span>
         </div>
         <InsightsCard
           title="Success Rate"
