@@ -93,8 +93,8 @@ function movingAvg(arr: number[], window: number): (number | null)[] {
 }
 
 const chargesChartConfig: TChartConfig = {
-  totalCharges: {
-    label: "Total Charges",
+  avgClaimValue: {
+    label: "Avg Claim Value",
     color: "#10b981",
   },
   trend: {
@@ -392,37 +392,39 @@ export default function DashboardPage() {
       : null;
 
   const chargesRuns = completedRuns
-    .filter((r) => r.totalCharges > 0)
+    .filter((r) => r.totalCharges > 0 && r.patientCount > 0)
     .reverse();
-  const chargesValues = chargesRuns.map((r) => r.totalCharges);
-  const ma = movingAvg(chargesValues, 5);
-  const avgCharge =
-    chargesValues.length > 0
+  const avgClaimValues = chargesRuns.map((r) =>
+    Math.round(r.totalCharges / r.patientCount)
+  );
+  const maAvgClaim = movingAvg(avgClaimValues, 5);
+  const avgClaimOverall =
+    avgClaimValues.length > 0
       ? Math.round(
-          chargesValues.reduce((a, b) => a + b, 0) / chargesValues.length
+          avgClaimValues.reduce((a, b) => a + b, 0) / avgClaimValues.length
         )
       : 0;
-  const highBatchIdx = chargesValues.indexOf(Math.max(...chargesValues));
-  const lowBatchIdx = chargesValues.indexOf(Math.min(...chargesValues));
+  const highBatchIdx = avgClaimValues.indexOf(Math.max(...avgClaimValues));
+  const lowBatchIdx = avgClaimValues.indexOf(Math.min(...avgClaimValues));
 
   const chartData = chargesRuns.map((r, i) => ({
     name: formatShortDate(r.createdAt),
-    totalCharges: r.totalCharges,
-    trend: ma[i],
-    patients: r.patientCount,
-    perPatient:
+    avgClaimValue:
       r.patientCount > 0
         ? Math.round(r.totalCharges / r.patientCount)
         : 0,
+    trend: maAvgClaim[i],
+    patients: r.patientCount,
+    totalCharges: r.totalCharges,
     date: formatDate(r.createdAt),
     isHigh: i === highBatchIdx,
     isLow: i === lowBatchIdx,
   }));
 
-  const chargesTrending = (() => {
+  const avgClaimTrending = (() => {
     if (chartData.length < 2) return "flat" as const;
-    const recent5 = chargesValues.slice(-5);
-    const prev5 = chargesValues.slice(-10, -5);
+    const recent5 = avgClaimValues.slice(-5);
+    const prev5 = avgClaimValues.slice(-10, -5);
     if (prev5.length === 0) return "flat" as const;
     const recentAvg = recent5.reduce((a, b) => a + b, 0) / recent5.length;
     const prevAvg = prev5.reduce((a, b) => a + b, 0) / prev5.length;
@@ -431,10 +433,10 @@ export default function DashboardPage() {
     if (delta < -0.05) return "down" as const;
     return "flat" as const;
   })();
-  const chargesTrendPct = (() => {
+  const avgClaimTrendPct = (() => {
     if (chartData.length < 6) return 0;
-    const recent5 = chargesValues.slice(-5);
-    const prev5 = chargesValues.slice(-10, -5);
+    const recent5 = avgClaimValues.slice(-5);
+    const prev5 = avgClaimValues.slice(-10, -5);
     if (prev5.length === 0) return 0;
     const recentAvg = recent5.reduce((a, b) => a + b, 0) / recent5.length;
     const prevAvg = prev5.reduce((a, b) => a + b, 0) / prev5.length;
@@ -610,36 +612,36 @@ export default function DashboardPage() {
         <div className="rounded-lg border bg-card p-5">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <Title level="h4">Charges by Batch</Title>
+              <Title level="h4">Average Claim Value</Title>
               <Text level="small" color="muted">
-                Batch charges with 5-batch moving average
+                Average claim value per batch with 5-batch moving average
               </Text>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="inline-block w-3 h-3 rounded-sm bg-[#10b981]/70" />
-                Charges
+                Avg Claim
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="inline-block w-3 h-0.5 bg-[#6366f1] rounded" />
                 Trend
               </div>
-              {chargesTrending !== "flat" && (
+              {avgClaimTrending !== "flat" && (
                 <div
                   className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
                   style={{
                     color:
-                      chargesTrending === "up" ? "#22c55e" : "#ef4444",
+                      avgClaimTrending === "up" ? "#22c55e" : "#ef4444",
                     backgroundColor:
-                      chargesTrending === "up"
+                      avgClaimTrending === "up"
                         ? "#22c55e14"
                         : "#ef444414",
                   }}
                 >
                   <span className="text-sm leading-none">
-                    {chargesTrending === "up" ? "↑" : "↓"}
+                    {avgClaimTrending === "up" ? "↑" : "↓"}
                   </span>
-                  {chargesTrendPct}%
+                  {avgClaimTrendPct}%
                 </div>
               )}
             </div>
@@ -679,11 +681,11 @@ export default function DashboardPage() {
                 className="fill-muted-foreground"
               />
               <ReferenceLine
-                y={avgCharge}
+                y={avgClaimOverall}
                 stroke="hsl(var(--foreground) / 0.15)"
                 strokeDasharray="4 4"
                 label={{
-                  value: `Avg ${formatCurrency(avgCharge)}`,
+                  value: `Avg ${formatCurrency(avgClaimOverall)}`,
                   position: "insideTopRight",
                   fontSize: 10,
                   fill: "hsl(var(--muted-foreground))",
@@ -697,9 +699,9 @@ export default function DashboardPage() {
                 content={({ active, payload }) => {
                   if (!active || !payload?.[0]) return null;
                   const d = payload[0].payload as (typeof chartData)[number];
-                  const vsAvg = avgCharge
+                  const vsAvg = avgClaimOverall
                     ? Math.round(
-                        ((d.totalCharges - avgCharge) / avgCharge) * 100
+                        ((d.avgClaimValue - avgClaimOverall) / avgClaimOverall) * 100
                       )
                     : 0;
                   return (
@@ -708,10 +710,10 @@ export default function DashboardPage() {
                       <div className="space-y-1.5">
                         <div className="flex justify-between gap-4">
                           <span className="text-muted-foreground">
-                            Total
+                            Avg claim
                           </span>
                           <span className="font-semibold text-[#10b981]">
-                            {formatCurrency(d.totalCharges)}
+                            {formatCurrency(d.avgClaimValue)}
                           </span>
                         </div>
                         <div className="flex justify-between gap-4">
@@ -722,10 +724,10 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex justify-between gap-4">
                           <span className="text-muted-foreground">
-                            Per patient
+                            Total charges
                           </span>
                           <span className="font-medium">
-                            {formatCurrency(d.perPatient)}
+                            {formatCurrency(d.totalCharges)}
                           </span>
                         </div>
                         <div className="border-t pt-1.5 flex justify-between gap-4">
@@ -745,7 +747,7 @@ export default function DashboardPage() {
                 }}
               />
               <Bar
-                dataKey="totalCharges"
+                dataKey="avgClaimValue"
                 fill="url(#chargesGradient)"
                 radius={[3, 3, 0, 0]}
                 maxBarSize={24}
